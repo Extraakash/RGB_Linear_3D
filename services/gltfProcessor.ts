@@ -7,6 +7,41 @@ import type { LogEntry } from '../types';
 // Callback type for logging
 type LogCallback = (message: string, type?: LogEntry['type']) => void;
 
+/**
+ * Inspects the first few bytes of an ArrayBuffer to determine the MIME type of an image.
+ * @param buffer The ArrayBuffer containing the image data.
+ * @returns The detected MIME type (e.g., 'image/png') or null if not recognized.
+ */
+const getImageMimeType = (buffer: ArrayBuffer): string | null => {
+    const uint8 = new Uint8Array(buffer);
+
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if (
+        uint8.length > 8 &&
+        uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4e &&
+        uint8[3] === 0x47 && uint8[4] === 0x0d && uint8[5] === 0x0a &&
+        uint8[6] === 0x1a && uint8[7] === 0x0a
+    ) {
+        return 'image/png';
+    }
+
+    // JPEG: FF D8 FF
+    if (uint8.length > 2 && uint8[0] === 0xff && uint8[1] === 0xd8 && uint8[2] === 0xff) {
+        return 'image/jpeg';
+    }
+
+    // WebP: RIFF .... WEBP
+    if (
+        uint8.length > 12 &&
+        uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46 &&
+        uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50
+    ) {
+        return 'image/webp';
+    }
+
+    return null;
+};
+
 // The user reported that the sRGB to Linear conversion (gamma ~2.2) resulted
 // in a darker image, which was the opposite of the desired effect. This
 // inverse correction (gamma of 1.0 / 2.2) is being applied to make the image
@@ -101,7 +136,10 @@ const processTexture = (texture: THREE.Texture, log: LogCallback, usePngCompress
 
             newTexture.colorSpace = THREE.LinearSRGBColorSpace;
     
-            texture.dispose(); 
+            // We don't dispose the original texture, as it might be used by other
+            // material properties (e.g. roughnessMap) that we are not modifying.
+            // The GLTFExporter will handle packing only the textures that are
+            // still referenced.
             resolve(newTexture);
 
         } catch (e) {
@@ -125,8 +163,92 @@ export const processGltf = (file: File, log: LogCallback, usePngCompression: boo
 
             loader.parse(fileBuffer, '', async (gltf) => {
                 try {
-                    log('GLB parsed successfully. Collecting textures...');
+                    log('GLB parsed successfully. Analyzing model assets...');
                     const scene = gltf.scene;
+                    const parser = gltf.parser;
+                    const json = parser.json;
+
+                    // --- Robust Texture Format Preservation ---
+                    // Instead of traversing the scene and relying on the 'associations' map (which can be unreliable),
+                    // we iterate directly through the GLTF manifest's texture definitions. This gives us a direct
+                    // link between the texture data and the THREE.Texture object.
+                    log('Attempting to preserve original texture formats...');
+                    let restoredCount = 0;
+                    let unknownCount = 0;
+                    
+                    if (json.textures && json.textures.length > 0) {
+                        log(`Found ${json.textures.length} textures in the model manifest.`);
+                        
+                        const texturePromises = json.textures.map(async (_: any, index: number) => {
+                            // Load the texture object using its index in the manifest
+                            const texture = await parser.getDependency('texture', index) as THREE.Texture;
+                            const textureDef = json.textures[index];
+                            let mimeTypeFound = false;
+
+                            if (textureDef.source === undefined) {
+                                log(`   > Texture definition at index ${index} has no source image.`, 'warning');
+                            } else {
+                                const imageDef = json.images?.[textureDef.source];
+                                if (!imageDef) {
+                                    log(`   > Could not find image definition for texture at index ${index}.`, 'warning');
+                                } else {
+                                    const textureName = texture.name || `(index ${index})`;
+
+                                    // Method 1: Check for MIME type in the GLTF manifest (most reliable)
+                                    if (imageDef.mimeType) {
+                                        (texture as any).mimeType = imageDef.mimeType;
+                                        log(`   > Texture '${textureName}' format identified as ${imageDef.mimeType} from GLB manifest.`, 'info');
+                                        restoredCount++;
+                                        mimeTypeFound = true;
+                                    }
+                                    // Method 2: Check for embedded data URI
+                                    else if (imageDef.uri?.startsWith('data:')) {
+                                        const dataUriMimeType = imageDef.uri.substring(5, imageDef.uri.indexOf(';'));
+                                        if (dataUriMimeType) {
+                                            (texture as any).mimeType = dataUriMimeType;
+                                            log(`   > Texture '${textureName}' format identified as ${dataUriMimeType} from data URI.`, 'info');
+                                            restoredCount++;
+                                            mimeTypeFound = true;
+                                        }
+                                    }
+                                    // Method 3: If not found, inspect the raw image bytes via bufferView (fallback)
+                                    else if (imageDef.bufferView !== undefined) {
+                                        try {
+                                            const bufferViewData = await parser.getDependency('bufferView', imageDef.bufferView);
+                                            const detectedMimeType = getImageMimeType(bufferViewData);
+                                            if (detectedMimeType) {
+                                                (texture as any).mimeType = detectedMimeType;
+                                                log(`   > Texture '${textureName}' format detected as ${detectedMimeType} by inspecting data.`, 'info');
+                                                restoredCount++;
+                                                mimeTypeFound = true;
+                                            }
+                                        } catch (e) {
+                                            log(`   > Error inspecting buffer for texture '${textureName}': ${(e as Error).message}`, 'warning');
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!mimeTypeFound) {
+                                log(`   > Texture '${texture.name || `(index ${index})`}' format could not be determined. It will be exported as PNG.`, 'warning');
+                                unknownCount++;
+                            }
+                        });
+                        
+                        await Promise.all(texturePromises);
+                        
+                        if (restoredCount > 0) {
+                            log(`Successfully identified format for ${restoredCount} texture(s).`, 'info');
+                        }
+                        if (unknownCount > 0) {
+                             log(`${unknownCount} texture(s) had no format specified in the GLB. Re-exporting them as PNG may change their file size.`, 'warning');
+                        }
+                    } else {
+                        log('No textures found in the GLB manifest.', 'info');
+                    }
+
+
+                    log('Collecting diffuse textures for conversion...');
                     const uniqueTexturesToProcess = new Set<THREE.Texture>();
 
                     scene.traverse((object) => {
@@ -135,7 +257,15 @@ export const processGltf = (file: File, log: LogCallback, usePngCompression: boo
 
                         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
                         materials.forEach((material) => {
-                            if (material instanceof THREE.MeshStandardMaterial && material.map) {
+                            // We only want to process the main color/diffuse texture, which is the `.map` property
+                            // on these material types. Other maps (normal, roughness, etc.) should be ignored.
+                            if (
+                                (material instanceof THREE.MeshStandardMaterial ||
+                                 material instanceof THREE.MeshBasicMaterial ||
+                                 material instanceof THREE.MeshLambertMaterial ||
+                                 material instanceof THREE.MeshPhongMaterial) 
+                                && material.map
+                            ) {
                                 uniqueTexturesToProcess.add(material.map);
                             }
                         });
@@ -166,7 +296,13 @@ export const processGltf = (file: File, log: LogCallback, usePngCompression: boo
                         
                         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
                         materials.forEach((material) => {
-                            if (material instanceof THREE.MeshStandardMaterial && material.map) {
+                            if (
+                                (material instanceof THREE.MeshStandardMaterial ||
+                                 material instanceof THREE.MeshBasicMaterial ||
+                                 material instanceof THREE.MeshLambertMaterial ||
+                                 material instanceof THREE.MeshPhongMaterial) 
+                                && material.map
+                            ) {
                                 if (processedTextureMap.has(material.map)) {
                                     material.map = processedTextureMap.get(material.map)!;
                                     material.needsUpdate = true;

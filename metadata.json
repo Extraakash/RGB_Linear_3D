@@ -1,5 +1,5 @@
 {
-  "name": "GLB Gamma Corrector",
+  "name": "RGB to Linear Texture Converter",
   "description": "A tool to convert the diffuse/albedo texture of a GLB 3D model from sRGB to linear color space by applying gamma correction. Simply drag and drop your GLB file to begin.",
   "requestFramePermissions": []
 }

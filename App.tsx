@@ -15,6 +15,8 @@ const App: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [usePngCompression, setUsePngCompression] = useState<boolean>(false);
     const [isLogVisible, setIsLogVisible] = useState<boolean>(false);
+    const [originalSize, setOriginalSize] = useState<number>(0);
+    const [processedSize, setProcessedSize] = useState<number>(0);
 
     const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
         setLogs(prev => [...prev, { id: Date.now() + Math.random(), message, type }]);
@@ -33,11 +35,13 @@ const App: React.FC = () => {
         setDownloadUrl(null);
         setError(null);
         setFileName(file.name);
+        setOriginalSize(file.size);
 
         try {
             const processedBlob = await processGltf(file, addLog, usePngCompression);
             const url = URL.createObjectURL(processedBlob);
             setDownloadUrl(url);
+            setProcessedSize(processedBlob.size);
             setProcessingState('success');
             addLog('Processing successful! Your file is ready for download.', 'success');
         } catch (err) {
@@ -59,11 +63,22 @@ const App: React.FC = () => {
         setDownloadUrl(null);
         setError(null);
         setFileName('');
+        setOriginalSize(0);
+        setProcessedSize(0);
     };
 
     const getNewFileName = () => {
         const parts = fileName.split('.glb');
         return `${parts[0]}_linear.glb`;
+    };
+
+    const formatBytes = (bytes: number, decimals = 2) => {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
     };
 
     const renderMainContent = () => {
@@ -94,6 +109,18 @@ const App: React.FC = () => {
                         <SuccessIcon className="w-16 h-16 text-green-400 mb-4" />
                         <h3 className="text-2xl font-bold text-green-300">Success!</h3>
                         <p className="text-gray-300 mt-2 mb-6">Your GLB file has been processed.</p>
+                        
+                        <div className="grid grid-cols-2 gap-4 w-full max-w-sm mb-8 text-center bg-gray-800/50 p-4 rounded-lg">
+                            <div>
+                                <div className="text-sm font-medium text-gray-400">Original Size</div>
+                                <div className="text-lg font-semibold text-gray-200">{formatBytes(originalSize)}</div>
+                            </div>
+                            <div>
+                                <div className="text-sm font-medium text-gray-400">New Size</div>
+                                <div className="text-lg font-semibold text-gray-200">{formatBytes(processedSize)}</div>
+                            </div>
+                        </div>
+
                         <div className="flex items-center space-x-4">
                             <a
                                 href={downloadUrl!}
@@ -128,7 +155,7 @@ const App: React.FC = () => {
     return (
         <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8">
             <header className="text-center mb-8">
-                <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">GLB Gamma Corrector</h1>
+                <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">RGB to Linear Texture Converter</h1>
                 <p className="mt-2 text-lg text-gray-400">Convert albedo textures from sRGB to Linear color space.</p>
             </header>
 
