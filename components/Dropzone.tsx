@@ -67,12 +67,16 @@ const Dropzone: React.FC<DropzoneProps> = ({ onFileDrop, disabled, children }) =
                 onChange={handleFileChange} 
                 disabled={disabled}
             />
-            <div className="flex flex-col items-center pointer-events-none">
-                <UploadIcon className="w-16 h-16 mb-4 text-gray-500" />
-                <p className="text-xl font-semibold text-gray-200">Drag & drop a .glb file here</p>
-                <p className="text-gray-400 mt-1">or click to select a file</p>
+            <div className="flex flex-col items-center">
+                <div className="pointer-events-none">
+                    <UploadIcon className="w-16 h-16 mb-4 text-gray-500" />
+                    <p className="text-xl font-semibold text-gray-200">Drag & drop a .glb file here</p>
+                    <p className="text-gray-400 mt-1">or click to select a file</p>
+                </div>
+                
                 {children}
-                <p className="text-xs text-gray-500 mt-6">All processing is done in your browser. Your files are never uploaded.</p>
+
+                <p className="text-xs text-gray-500 mt-6 pointer-events-none">All processing is done in your browser. Your files are never uploaded.</p>
             </div>
         </div>
     );

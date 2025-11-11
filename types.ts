@@ -6,3 +6,5 @@ export type LogEntry = {
 };
 
 export type ProcessingState = 'idle' | 'processing' | 'success' | 'error';
+
+export type OptimizationLevel = 'none' | 'balanced' | 'aggressive';

@@ -1,11 +1,11 @@
 
 import React, { useState, useCallback } from 'react';
-import type { LogEntry, ProcessingState } from './types';
+import type { LogEntry, ProcessingState, OptimizationLevel } from './types';
 import { processGltf } from './services/gltfProcessor';
 import Dropzone from './components/Dropzone';
 import Logger from './components/Logger';
-import { DownloadIcon, ErrorIcon, FileIcon, ResetIcon, SuccessIcon, ChevronDownIcon, ChevronUpIcon, UploadIcon } from './components/icons';
-import ToggleSwitch from './components/ToggleSwitch';
+import { DownloadIcon, ErrorIcon, FileIcon, ResetIcon, SuccessIcon, ChevronDownIcon, ChevronUpIcon, UploadIcon, InfoIcon } from './components/icons';
+import Tooltip from './components/Tooltip';
 
 const App: React.FC = () => {
     const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -13,7 +13,7 @@ const App: React.FC = () => {
     const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
     const [fileName, setFileName] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
-    const [usePngCompression, setUsePngCompression] = useState<boolean>(false);
+    const [optimizationLevel, setOptimizationLevel] = useState<OptimizationLevel>('none');
     const [isLogVisible, setIsLogVisible] = useState<boolean>(false);
     const [originalSize, setOriginalSize] = useState<number>(0);
     const [processedSize, setProcessedSize] = useState<number>(0);
@@ -29,8 +29,6 @@ const App: React.FC = () => {
         }
 
         setProcessingState('processing');
-        // Keep the log collapsed by default, user can expand it manually.
-        // setIsLogVisible(true); 
         setLogs([]);
         setDownloadUrl(null);
         setError(null);
@@ -38,7 +36,7 @@ const App: React.FC = () => {
         setOriginalSize(file.size);
 
         try {
-            const processedBlob = await processGltf(file, addLog, usePngCompression);
+            const processedBlob = await processGltf(file, addLog, optimizationLevel);
             const url = URL.createObjectURL(processedBlob);
             setDownloadUrl(url);
             setProcessedSize(processedBlob.size);
@@ -51,11 +49,11 @@ const App: React.FC = () => {
             setProcessingState('error');
             console.error(err);
         }
-    }, [addLog, usePngCompression]);
+    }, [addLog, optimizationLevel]);
 
     const handleReset = () => {
         setProcessingState('idle');
-        setIsLogVisible(false); // Hide log on reset
+        setIsLogVisible(false);
         setLogs([]);
         if (downloadUrl) {
             URL.revokeObjectURL(downloadUrl);
@@ -86,12 +84,24 @@ const App: React.FC = () => {
             case 'idle':
                 return (
                     <Dropzone onFileDrop={handleFileDrop} disabled={false}>
-                        <div className="flex items-center space-x-2 justify-center mt-6">
-                            <span className="text-sm text-gray-400">Compress Textures</span>
-                            <ToggleSwitch
-                                enabled={usePngCompression}
-                                onChange={setUsePngCompression}
-                            />
+                        <div className="mt-6 w-full max-w-sm">
+                            <div className="flex items-center justify-center space-x-2 mb-3">
+                                <h3 className="text-sm font-medium text-gray-300">Texture Optimization</h3>
+                                 <Tooltip text="All textures are converted to PNG. These options resize large textures and apply advanced color reduction (quantization) to significantly reduce PNG file size.">
+                                     <InfoIcon className="w-4 h-4 text-gray-400" />
+                                 </Tooltip>
+                            </div>
+                            <div className="flex justify-center space-x-2 bg-gray-900/50 p-1 rounded-lg">
+                                {(['none', 'balanced', 'aggressive'] as OptimizationLevel[]).map((level) => (
+                                     <button
+                                         key={level}
+                                         onClick={(e) => { e.stopPropagation(); setOptimizationLevel(level); }}
+                                         className={`px-3 py-1 text-sm rounded-md transition-colors capitalize w-full ${optimizationLevel === level ? 'bg-cyan-500 text-white font-semibold' : 'bg-transparent text-gray-300 hover:bg-gray-700'}`}
+                                     >
+                                         {level}
+                                     </button>
+                                ))}
+                            </div>
                         </div>
                     </Dropzone>
                 );
@@ -100,7 +110,7 @@ const App: React.FC = () => {
                     <div className="flex flex-col items-center justify-center h-full text-center p-8">
                          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-400 mb-4"></div>
                         <h3 className="text-xl font-semibold text-gray-200">Processing Model</h3>
-                        <p className="text-gray-400 mt-2">Correcting gamma on diffuse textures. Please wait...</p>
+                        <p className="text-gray-400 mt-2">Correcting gamma and optimizing textures. Please wait...</p>
                     </div>
                 );
             case 'success':
