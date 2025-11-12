@@ -112,7 +112,7 @@ export const processGltf = async (file: File, log: LogCallback, quality: number)
                 try {
                     let newBuffer = await processTexture(texture, isDiffuse, log, quality);
                     let modified = true;
-                    if (imageDef.mimeType === 'image/png' && newBuffer.byteLength > originalSize) {
+                    if (!isDiffuse && imageDef.mimeType === 'image/png' && newBuffer.byteLength > originalSize) {
                          log(`   > Compressed size (${formatBytes(newBuffer.byteLength)}) is larger than original (${formatBytes(originalSize)}). Preserving original.`);
                         newBuffer = originalBuffer;
                         modified = false;
