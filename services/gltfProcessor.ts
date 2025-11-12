@@ -16,7 +16,10 @@ const formatBytes = (bytes: number, decimals = 2) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
-const correctGamma = (c: number): number => Math.pow(c, 2.2);
+const correctGamma = (c: number): number => {
+    // linear to sRGB conversion
+    return c < 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+};
 
 async function processTexture(
     texture: THREE.Texture,
@@ -39,13 +42,13 @@ async function processTexture(
     const imageData = context.getImageData(0, 0, width, height);
     if (isDiffuse) {
         const data = imageData.data;
-        const srgbToLinear = new Uint8Array(256);
-        for(let i=0; i<256; i++) srgbToLinear[i] = Math.floor(correctGamma(i/255)*255);
+        const gammaLookup = new Uint8Array(256);
+        for(let i=0; i<256; i++) gammaLookup[i] = Math.floor(correctGamma(i/255)*255);
 
         for (let i = 0; i < data.length; i += 4) {
-            data[i] = srgbToLinear[data[i]];
-            data[i + 1] = srgbToLinear[data[i + 1]];
-            data[i + 2] = srgbToLinear[data[i + 2]];
+            data[i] = gammaLookup[data[i]];
+            data[i + 1] = gammaLookup[data[i + 1]];
+            data[i + 2] = gammaLookup[data[i + 2]];
         }
     }
     context.putImageData(imageData, 0, 0);
@@ -80,7 +83,6 @@ export const processGltf = async (file: File, log: LogCallback, quality: number)
                 materials.forEach(material => {
                     if ((material.isMeshStandardMaterial || material.isMeshBasicMaterial) && material.map) {
                         diffuseTextureSet.add(material.map);
-                        material.map.colorSpace = THREE.LinearSRGBColorSpace;
                     }
                 });
             }
@@ -140,41 +142,51 @@ export const processGltf = async (file: File, log: LogCallback, quality: number)
                 }
             });
         }
-
+        
         const viewMetas = oldBufferViews.map((bv: any, i: number) => ({
             index: i,
-            byteOffset: bv.byteOffset || 0,
+            oldBv: bv,
+            originalOffset: bv.byteOffset,
             isImage: viewIndexToImageIndex[i] !== undefined,
             imageIndex: viewIndexToImageIndex[i],
             sourceData: null as ArrayBuffer | null,
         }));
         
-        viewMetas.sort((a, b) => a.byteOffset - b.byteOffset);
+        let lastOffset = 0;
+        let lastLength = 0;
+        oldBufferViews.forEach((bv:any, i:number) => {
+            const meta = viewMetas[i];
+            if(meta.originalOffset === undefined) {
+                meta.originalOffset = lastOffset + lastLength;
+            }
+            lastOffset = meta.originalOffset;
+            lastLength = meta.oldBv.byteLength;
+        });
+
+        for(const meta of viewMetas) {
+            if (meta.isImage && newImageBuffers[meta.imageIndex] !== undefined) {
+                meta.sourceData = newImageBuffers[meta.imageIndex];
+                newJson.images[meta.imageIndex].mimeType = 'image/png';
+            } else {
+                meta.sourceData = oldBin.slice(meta.originalOffset, meta.originalOffset + meta.oldBv.byteLength);
+            }
+        }
+        
+        viewMetas.sort((a, b) => a.originalOffset - b.originalOffset);
 
         log(`[INFO] --- Rebuilding binary chunk ---`);
         log(`[INFO] Pass 1: Calculating new layout...`);
         let newBinSize = 0;
         for (const meta of viewMetas) {
-            const oldBv = oldBufferViews[meta.index];
-            const offset = oldBv.byteOffset || 0;
-            let data: ArrayBuffer;
-            if (meta.isImage && newImageBuffers[meta.imageIndex] !== undefined) {
-                data = newImageBuffers[meta.imageIndex];
-                newJson.images[meta.imageIndex].mimeType = 'image/png';
-            } else {
-                data = oldBin.slice(offset, offset + oldBv.byteLength);
-            }
-            meta.sourceData = data;
-
             const padding = (4 - (newBinSize % 4)) % 4;
             newBinSize += padding;
             
             newJson.bufferViews[meta.index].byteOffset = newBinSize;
-            newJson.bufferViews[meta.index].byteLength = data.byteLength;
+            newJson.bufferViews[meta.index].byteLength = meta.sourceData!.byteLength;
             
-            log(`[DEBUG] BV ${meta.index}: old offset: ${oldBv.byteOffset}, new offset: ${newBinSize}, length: ${data.byteLength}, padding: ${padding}`);
+            log(`[DEBUG] BV ${meta.index}: old offset: ${meta.oldBv.byteOffset}, new offset: ${newBinSize}, length: ${meta.sourceData!.byteLength}, padding: ${padding}`);
             
-            newBinSize += data.byteLength;
+            newBinSize += meta.sourceData!.byteLength;
         }
         
         newJson.buffers[0].byteLength = newBinSize;
@@ -183,23 +195,21 @@ export const processGltf = async (file: File, log: LogCallback, quality: number)
         log(`[INFO] Pass 2: Assembling new binary buffer...`);
         const newBinBuffer = new ArrayBuffer(newBinSize);
         const newBinBytes = new Uint8Array(newBinBuffer);
-        let currentOffset = 0;
+
         for (const meta of viewMetas) {
-            const padding = (4 - (currentOffset % 4)) % 4;
-            currentOffset += padding;
-            
+            const newBv = newJson.bufferViews[meta.index];
             if (!meta.sourceData) {
                 throw new Error(`Source data for bufferView ${meta.index} is missing.`);
             }
-            log(`[DEBUG] BV ${meta.index}: Writing ${meta.sourceData!.byteLength} bytes at offset ${currentOffset}`);
-            newBinBytes.set(new Uint8Array(meta.sourceData!), currentOffset);
-            currentOffset += meta.sourceData!.byteLength;
+            log(`[DEBUG] BV ${meta.index}: Writing ${meta.sourceData!.byteLength} bytes at offset ${newBv.byteOffset}`);
+            newBinBytes.set(new Uint8Array(meta.sourceData!), newBv.byteOffset);
         }
         
-        if (currentOffset !== newBinSize) {
-             log(`[ERROR] Mismatch in binary chunk construction. Expected size: ${newBinSize}, Actual size: ${currentOffset}`, 'error');
+        const finalSize = newBinBytes.byteLength;
+        if (finalSize !== newBinSize) {
+             log(`[ERROR] Mismatch in binary chunk construction. Expected size: ${newBinSize}, Actual size: ${finalSize}`, 'error');
         } else {
-             log(`[INFO] Pass 2: Assembly complete. Final size: ${currentOffset} bytes.`);
+             log(`[INFO] Pass 2: Assembly complete. Final size: ${finalSize} bytes.`);
         }
         
         const GLB_HEADER_MAGIC = 0x46546C67; // 'glTF'
@@ -253,7 +263,8 @@ export const processGltf = async (file: File, log: LogCallback, quality: number)
 
         return new Blob([finalGlbBuffer], { type: 'model/gltf-binary' });
     } catch (e) {
-        log(`[FATAL] An unexpected error occurred during GLB reconstruction: ${e.message}`, 'error');
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        log(`[FATAL] An unexpected error occurred during GLB reconstruction: ${errorMessage}`, 'error');
         console.error(e);
         throw e;
     }
