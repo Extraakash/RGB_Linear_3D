@@ -11,8 +11,7 @@
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "three": "^0.181.1",
-    "upng-js": "^2.1.0"
+    "three": "^0.181.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -57,9 +57,9 @@ const Dropzone: React.FC<DropzoneProps> = ({ onFileDrop, disabled, children }) =
             onDragOver={handleDrag}
             onDragLeave={handleDrag}
             onDrop={handleDrop}
-            onClick={() => document.getElementById('fileInput')?.click()}
+            onClick={() => !disabled && document.getElementById('fileInput')?.click()}
         >
-            <input 
+             <input 
                 type="file" 
                 id="fileInput" 
                 className="hidden" 
@@ -67,8 +67,8 @@ const Dropzone: React.FC<DropzoneProps> = ({ onFileDrop, disabled, children }) =
                 onChange={handleFileChange} 
                 disabled={disabled}
             />
-            <div className="flex flex-col items-center">
-                <div className="pointer-events-none">
+            <div>
+                <div className="flex flex-col items-center pointer-events-none">
                     <UploadIcon className="w-16 h-16 mb-4 text-gray-500" />
                     <p className="text-xl font-semibold text-gray-200">Drag & drop a .glb file here</p>
                     <p className="text-gray-400 mt-1">or click to select a file</p>

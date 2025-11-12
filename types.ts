@@ -1,4 +1,6 @@
 
+import * as THREE from 'three';
+
 export type LogEntry = {
   id: number;
   message: string;
@@ -6,5 +8,3 @@ export type LogEntry = {
 };
 
 export type ProcessingState = 'idle' | 'processing' | 'success' | 'error';
-
-export type OptimizationLevel = 'none' | 'balanced' | 'aggressive';
