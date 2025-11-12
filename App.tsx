@@ -5,7 +5,6 @@ import { processGltf } from './services/gltfProcessor';
 import Logger from './components/Logger';
 import Dropzone from './components/Dropzone';
 import Tooltip from './components/Tooltip';
-import ToggleSwitch from './components/ToggleSwitch';
 import { DownloadIcon, ErrorIcon, FileIcon, ResetIcon, SuccessIcon, ChevronDownIcon, ChevronUpIcon, InfoIcon } from './components/icons';
 
 const formatBytes = (bytes: number, decimals = 2) => {
@@ -23,11 +22,10 @@ const App: React.FC = () => {
     const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
     const [fileName, setFileName] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
-    const [isLogVisible, setIsLogVisible] = useState<boolean>(true);
+    const [isLogVisible, setIsLogVisible] = useState<boolean>(false);
     const [originalSize, setOriginalSize] = useState<number>(0);
     const [processedSize, setProcessedSize] = useState<number>(0);
     const [compressionQuality, setCompressionQuality] = useState<number>(90);
-    const [isCompressionEnabled, setIsCompressionEnabled] = useState<boolean>(true);
     const logContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -47,14 +45,13 @@ const App: React.FC = () => {
         }
 
         setProcessingState('processing');
-        setIsLogVisible(true);
         setLogs([]);
         setFileName(file.name);
         setOriginalSize(file.size);
 
         try {
-            const quality = isCompressionEnabled ? compressionQuality : 100;
-            addLog(`PNG compression is ${isCompressionEnabled ? `enabled with quality ${quality}` : 'disabled (lossless)'}.`);
+            const quality = compressionQuality;
+            addLog(`PNG compression enabled with quality ${quality === 100 ? 'lossless' : quality}.`);
             const processedBlob = await processGltf(file, addLog, quality);
             const url = URL.createObjectURL(processedBlob);
             setDownloadUrl(url);
@@ -66,7 +63,7 @@ const App: React.FC = () => {
             setError(errorMessage);
             setProcessingState('error');
         }
-    }, [addLog, compressionQuality, isCompressionEnabled]);
+    }, [addLog, compressionQuality]);
 
     const handleReset = () => {
         setProcessingState('idle');
@@ -90,49 +87,30 @@ const App: React.FC = () => {
             case 'idle':
                 return (
                     <Dropzone onFileDrop={handleFileDrop} disabled={processingState !== 'idle'}>
-                        <div className="w-full max-w-sm mx-auto mt-8 space-y-4" onClick={(e) => e.stopPropagation()}>
-                             <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                    <label htmlFor="compression-toggle" className="text-sm font-medium text-gray-400">
-                                        Enable PNG Compression
-                                    </label>
-                                    <Tooltip text="When enabled, textures are compressed into PNG format which can reduce file size. When disabled, textures are converted to lossless PNGs.">
-                                        <InfoIcon className="w-5 h-5 text-gray-500"/>
-                                    </Tooltip>
-                                </div>
-                                <ToggleSwitch
-                                    enabled={isCompressionEnabled}
-                                    onChange={setIsCompressionEnabled}
-                                />
+                        <div className="w-full max-w-sm mx-auto mt-8 space-y-2" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-center space-x-2">
+                                <label htmlFor="quality-slider" className="text-sm font-medium text-gray-400">
+                                    Compression Quality
+                                </label>
+                                <Tooltip text="Controls the quality of processed PNG textures. 100 is lossless, lower values offer more compression.">
+                                    <InfoIcon className="w-5 h-5 text-gray-500"/>
+                                </Tooltip>
                             </div>
-
-                            <div className={`transition-all duration-300 ease-in-out ${isCompressionEnabled ? 'max-h-24 opacity-100' : 'max-h-0 opacity-0'} overflow-hidden`}>
-                                <div className="space-y-2 pt-2">
-                                    <div className="flex items-center justify-center space-x-2">
-                                        <label htmlFor="quality-slider" className="text-sm font-medium text-gray-400">
-                                            Compression Quality
-                                        </label>
-                                        <Tooltip text="Controls the quality of processed PNG textures. 100 is lossless, lower values offer more compression.">
-                                            <InfoIcon className="w-5 h-5 text-gray-500"/>
-                                        </Tooltip>
-                                    </div>
-                                    <div className="flex items-center space-x-4">
-                                        <input
-                                            id="quality-slider"
-                                            type="range"
-                                            min="0"
-                                            max="100"
-                                            value={compressionQuality}
-                                            onChange={(e) => setCompressionQuality(parseInt(e.target.value, 10))}
-                                            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                                            disabled={processingState !== 'idle'}
-                                            aria-label="PNG compression quality"
-                                        />
-                                        <span className="text-cyan-400 font-mono w-24 text-center">
-                                            {compressionQuality === 100 ? 'Lossless' : `${compressionQuality}`}
-                                        </span>
-                                    </div>
-                                </div>
+                            <div className="flex items-center space-x-4">
+                                <input
+                                    id="quality-slider"
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    value={compressionQuality}
+                                    onChange={(e) => setCompressionQuality(parseInt(e.target.value, 10))}
+                                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                                    disabled={processingState !== 'idle'}
+                                    aria-label="PNG compression quality"
+                                />
+                                <span className="text-cyan-400 font-mono w-24 text-center">
+                                    {compressionQuality === 100 ? 'Lossless' : `${compressionQuality}`}
+                                </span>
                             </div>
                         </div>
                     </Dropzone>
