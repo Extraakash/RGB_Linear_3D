@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import type { LogEntry } from '../types';
 
 interface LoggerProps {
@@ -7,14 +7,6 @@ interface LoggerProps {
 }
 
 const Logger: React.FC<LoggerProps> = ({ logs }) => {
-    const logContainerRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (logContainerRef.current) {
-            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-        }
-    }, [logs]);
-
     const getLogColor = (type: LogEntry['type']): string => {
         switch (type) {
             case 'success': return 'text-green-400';
@@ -36,7 +28,7 @@ const Logger: React.FC<LoggerProps> = ({ logs }) => {
     }
 
     return (
-        <div ref={logContainerRef} className="p-4 font-mono text-sm bg-gray-900/50">
+        <div className="p-4 font-mono text-sm bg-gray-900/50">
             {logs.length === 0 && <p className="text-gray-500">Waiting for file...</p>}
             {logs.map((log) => (
                 <div key={log.id} className="flex">

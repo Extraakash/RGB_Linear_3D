@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,21 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RGB to Linear Texture Converter</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-<script type="importmap">
-{
-  "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "three/": "https://aistudiocdn.com/three@^0.181.1/",
-    "three": "https://aistudiocdn.com/three@^0.181.1"
-  }
-}
-</script>
+    <script type="importmap">
+    {
+      "imports": {
+        "react/": "https://aistudiocdn.com/react@^19.2.0/",
+        "react": "https://aistudiocdn.com/react@^19.2.0",
+        "three/": "https://aistudiocdn.com/three@^0.181.1/",
+        "three": "https://aistudiocdn.com/three@^0.181.1",
+        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+      }
+    }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/photopea/UPNG.js@master/UPNG.js"></script>
+    <style>
+      body {
+        background-color: #111827; /* bg-gray-900 from Tailwind */
+      }
+    </style>
 </head>
-<body class="bg-gray-900 text-gray-100 font-sans">
+<body class="text-gray-100">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
 </body>
 </html>

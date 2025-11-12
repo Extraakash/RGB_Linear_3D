@@ -1,8 +1,9 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { LogEntry } from '../types';
+
+declare const UPNG: any;
 
 type LogCallback = (message: string, type?: LogEntry['type']) => void;
 
@@ -15,22 +16,14 @@ const formatBytes = (bytes: number, decimals = 2) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
-const getImageMimeType = (buffer: ArrayBuffer): string | null => {
-    const uint8 = new Uint8Array(buffer);
-    if (uint8.length > 8 && uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4e && uint8[3] === 0x47) return 'image/png';
-    if (uint8.length > 2 && uint8[0] === 0xff && uint8[1] === 0xd8 && uint8[2] === 0xff) return 'image/jpeg';
-    if (uint8.length > 12 && uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46 && uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50) return 'image/webp';
-    return null;
-};
-
 const correctGamma = (c: number): number => Math.pow(c, 2.2);
 
 async function processTexture(
     texture: THREE.Texture,
     isDiffuse: boolean,
-    mimeType: string | null,
-    log: LogCallback
-): Promise<{ texture: THREE.Texture, size: number }> {
+    log: LogCallback,
+    quality: number
+): Promise<ArrayBuffer> {
     const image = texture.image as HTMLImageElement;
     const { width, height } = image;
     
@@ -56,167 +49,212 @@ async function processTexture(
         }
     }
     context.putImageData(imageData, 0, 0);
+    
+    const cnum = quality === 100 ? 0 : Math.round(2 + (254 * quality) / 100);
+    log(`   > Compressing texture as PNG with quality ${quality === 100 ? 'lossless' : quality} (cnum: ${cnum})`);
 
-    const newMimeType: string = mimeType || 'image/png';
-    const canvasBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, newMimeType));
-    if (!canvasBlob) throw new Error('Failed to create blob from canvas.');
-    const blob = canvasBlob;
-
-    const newTexture = texture.clone();
-    newTexture.image = await createImageBitmap(blob);
-    (newTexture as any).mimeType = newMimeType;
-    newTexture.needsUpdate = true;
-
-    if (isDiffuse) {
-        newTexture.colorSpace = THREE.LinearSRGBColorSpace;
-    }
-
-    return { texture: newTexture, size: blob.size };
+    const pngBuffer = UPNG.encode([imageData.data.buffer], width, height, cnum);
+    return pngBuffer;
 }
 
 
-export const processGltf = async (file: File, log: LogCallback): Promise<Blob> => {
-    log(`Starting GLB processing...`);
-    const fileBuffer = await file.arrayBuffer();
-    log(`[INFO] File read into buffer.`);
+export const processGltf = async (file: File, log: LogCallback, quality: number): Promise<Blob> => {
+    try {
+        log(`Starting GLB processing...`);
+        const fileBuffer = await file.arrayBuffer();
+        log(`[INFO] File read into buffer.`);
 
-    const loader = new GLTFLoader();
-    const gltf = await new Promise<any>((resolve, reject) => loader.parse(fileBuffer, '', resolve, reject));
-    
-    log(`[INFO] GLB parsed successfully. Analyzing model assets...`);
-    
-    const parser = gltf.parser;
-    const json = parser.json;
-    const scene = gltf.scene;
-
-    const originalTextures: { texture: THREE.Texture, mimeType: string | null, originalSize: number }[] = [];
-    if (json.textures) {
-        log(`[INFO] Attempting to preserve original texture formats...`);
-        const texturePromises = json.textures.map(async (_: any, index: number) => {
-            const texture = await parser.getDependency('texture', index);
-            const textureDef = json.textures[index];
-            const imageDef = json.images?.[textureDef.source];
-            if (!imageDef) return null;
-            
-            const bufferViewData = await parser.getDependency('bufferView', imageDef.bufferView);
-            const mimeType = imageDef.mimeType || getImageMimeType(bufferViewData);
-            
-            if (mimeType) {
-                log(`   > Texture '${texture.name || `(index ${index})`}' format identified as ${mimeType} from GLB manifest.`);
-            } else {
-                log(`   > [WARN] Texture '${texture.name || `(index ${index})`}' format could not be determined. It will be exported as PNG.`, 'warning');
-            }
-            return { texture, mimeType, originalSize: bufferViewData.byteLength };
-        });
-        const results = (await Promise.all(texturePromises)).filter(Boolean);
-        originalTextures.push(...results as any[]);
-        log(`[INFO] Successfully identified format for ${results.length} texture(s).`);
-    }
-
-    const diffuseTextureSet = new Set<THREE.Texture>();
-    scene.traverse((object: any) => {
-        if (object.isMesh && object.material) {
-            const materials = Array.isArray(object.material) ? object.material : [object.material];
-            materials.forEach(material => {
-                if ((material.isMeshStandardMaterial || material.isMeshBasicMaterial) && material.map) {
-                    diffuseTextureSet.add(material.map);
-                }
-            });
-        }
-    });
-    
-    log(`[INFO] Collecting textures for conversion...`);
-    const textureMap = new Map<THREE.Texture, THREE.Texture>();
-    const textureSizeChanges: { name: string, originalSize: number, newSize: number, modified: boolean }[] = [];
-
-    const textureProcessingPromises = originalTextures.map(async ({ texture, mimeType, originalSize }) => {
-        const isDiffuse = diffuseTextureSet.has(texture);
-        const shouldProcess = isDiffuse;
+        const loader = new GLTFLoader();
+        const gltf = await new Promise<any>((resolve, reject) => loader.parse(fileBuffer, '', resolve, reject));
         
-        if (shouldProcess) {
-             try {
-                const { texture: newTexture, size: newSize } = await processTexture(texture, isDiffuse, mimeType, log);
-                textureMap.set(texture, newTexture);
-                textureSizeChanges.push({ name: texture.name || 'Untitled', originalSize, newSize, modified: true });
-            } catch(e) {
-                log(`[ERROR] Could not process texture '${texture.name || 'Untitled'}'. It will be skipped.`, 'error');
-                console.error(e);
-                textureSizeChanges.push({ name: texture.name || 'Untitled', originalSize, newSize: originalSize, modified: false });
-            }
-        } else {
-            textureSizeChanges.push({ name: texture.name || 'Untitled', originalSize, newSize: originalSize, modified: false });
-        }
-    });
+        log(`[INFO] GLB parsed successfully. Analyzing model assets...`);
+        
+        const parser = gltf.parser;
+        const json = parser.json;
+        const scene = gltf.scene;
 
-    await Promise.all(textureProcessingPromises);
-
-    log(`[SUCCESS] All textures processed. Applying new textures to materials...`, 'success');
-
-    const clonedScene = scene.clone(true);
-    clonedScene.traverse((object: any) => {
-        if (object.isMesh && object.material) {
-            const materials = Array.isArray(object.material) ? object.material : [object.material];
-            object.material = materials.length > 1 ? [] : undefined;
-
-            materials.forEach(material => {
-                const newMaterial = material.clone();
-                for (const key in newMaterial) {
-                    if (newMaterial[key as keyof typeof newMaterial] instanceof THREE.Texture) {
-                         const originalTexture = newMaterial[key as keyof typeof newMaterial] as THREE.Texture;
-                         if(textureMap.has(originalTexture)) {
-                            (newMaterial as any)[key] = textureMap.get(originalTexture);
-                         }
+        const diffuseTextureSet = new Set<THREE.Texture>();
+        scene.traverse((object: any) => {
+            if (object.isMesh && object.material) {
+                const materials = Array.isArray(object.material) ? object.material : [object.material];
+                materials.forEach(material => {
+                    if ((material.isMeshStandardMaterial || material.isMeshBasicMaterial) && material.map) {
+                        diffuseTextureSet.add(material.map);
+                        material.map.colorSpace = THREE.LinearSRGBColorSpace;
                     }
+                });
+            }
+        });
+        
+        log(`[INFO] Collecting textures for conversion...`);
+        const newImageBuffers: { [index: number]: ArrayBuffer } = {};
+        const textureSizeChanges: { name: string, originalSize: number, newSize: number, modified: boolean }[] = [];
+
+        const oldBin = await parser.getDependency('buffer', 0);
+
+        if (json.textures) {
+            log(`[INFO] Found ${json.textures.length} textures.`);
+            const texturePromises = json.textures.map(async (_: any, textureIndex: number) => {
+                const texture = await parser.getDependency('texture', textureIndex);
+                const textureDef = json.textures[textureIndex];
+                const imageIndex = textureDef.source;
+                const imageDef = json.images?.[imageIndex];
+                if (!imageDef || imageDef.bufferView === undefined) return;
+
+                const bufferViewDef = json.bufferViews[imageDef.bufferView];
+                const originalBuffer = oldBin.slice(bufferViewDef.byteOffset || 0, (bufferViewDef.byteOffset || 0) + bufferViewDef.byteLength);
+                const originalSize = originalBuffer.byteLength;
+                
+                const isDiffuse = diffuseTextureSet.has(texture);
+
+                try {
+                    let newBuffer = await processTexture(texture, isDiffuse, log, quality);
+                    let modified = true;
+                    if (imageDef.mimeType === 'image/png' && newBuffer.byteLength > originalSize) {
+                         log(`   > Compressed size (${formatBytes(newBuffer.byteLength)}) is larger than original (${formatBytes(originalSize)}). Preserving original.`);
+                        newBuffer = originalBuffer;
+                        modified = false;
+                    }
+                    newImageBuffers[imageIndex] = newBuffer;
+                    textureSizeChanges[imageIndex] = { name: texture.name || `Image ${imageIndex}`, originalSize, newSize: newBuffer.byteLength, modified };
+                } catch(e) {
+                    log(`[ERROR] Could not process texture '${texture.name || 'Untitled'}'. It will be preserved.`, 'error');
+                    console.error(e);
+                    textureSizeChanges[imageIndex] = { name: texture.name || `Image ${imageIndex}`, originalSize, newSize: originalSize, modified: false };
                 }
-                if (Array.isArray(object.material)) {
-                    object.material.push(newMaterial);
-                } else {
-                    object.material = newMaterial;
+            });
+
+            await Promise.all(texturePromises);
+        }
+
+        log(`[SUCCESS] All textures processed. Re-packing GLB...`, 'success');
+
+        const newJson = JSON.parse(JSON.stringify(json));
+        const oldBufferViews = json.bufferViews;
+
+        const viewIndexToImageIndex: { [viewIndex: number]: number } = {};
+        if (json.images) {
+            json.images.forEach((img: any, imgIndex: number) => {
+                if (img.bufferView !== undefined) {
+                    viewIndexToImageIndex[img.bufferView] = imgIndex;
                 }
             });
         }
-    });
 
-    log(`[INFO] Exporting to new GLB file...`);
-    const exporter = new GLTFExporter();
-    const result = await new Promise<ArrayBuffer>((resolve, reject) => {
-        exporter.parse(clonedScene, (result) => {
-            if (result instanceof ArrayBuffer) {
-                resolve(result);
+        const viewMetas = oldBufferViews.map((bv: any, i: number) => ({
+            index: i,
+            byteOffset: bv.byteOffset || 0,
+            isImage: viewIndexToImageIndex[i] !== undefined,
+            imageIndex: viewIndexToImageIndex[i],
+            sourceData: null as ArrayBuffer | null,
+        }));
+        
+        viewMetas.sort((a, b) => a.byteOffset - b.byteOffset);
+
+        log(`[INFO] --- Rebuilding binary chunk ---`);
+        log(`[INFO] Pass 1: Calculating new layout...`);
+        let newBinSize = 0;
+        for (const meta of viewMetas) {
+            const oldBv = oldBufferViews[meta.index];
+            const offset = oldBv.byteOffset || 0;
+            let data: ArrayBuffer;
+            if (meta.isImage && newImageBuffers[meta.imageIndex] !== undefined) {
+                data = newImageBuffers[meta.imageIndex];
+                newJson.images[meta.imageIndex].mimeType = 'image/png';
             } else {
-                reject('Exporter did not return ArrayBuffer');
+                data = oldBin.slice(offset, offset + oldBv.byteLength);
             }
-        }, (error) => reject(error), { binary: true, embedImages: true });
-    });
-    
-    log(`[SUCCESS] Export complete!`, 'success');
-    
-    // Final report generation from the exported file for accuracy
-    const finalGltf = await new Promise<any>((resolve, reject) => loader.parse(result.slice(0), '', resolve, reject));
-    const finalParser = finalGltf.parser;
-    const finalJson = finalParser.json;
-    
-    if (finalJson.images) {
-        const finalSizePromises = finalJson.images.map(async (imgDef: any, index: number) => {
-            try {
-                const bufferViewData = await finalParser.getDependency('bufferView', imgDef.bufferView);
-                return bufferViewData.byteLength;
-            } catch { return 0; }
-        });
-        const finalSizes = await Promise.all(finalSizePromises);
+            meta.sourceData = data;
+
+            const padding = (4 - (newBinSize % 4)) % 4;
+            newBinSize += padding;
+            
+            newJson.bufferViews[meta.index].byteOffset = newBinSize;
+            newJson.bufferViews[meta.index].byteLength = data.byteLength;
+            
+            log(`[DEBUG] BV ${meta.index}: old offset: ${oldBv.byteOffset}, new offset: ${newBinSize}, length: ${data.byteLength}, padding: ${padding}`);
+            
+            newBinSize += data.byteLength;
+        }
+        
+        newJson.buffers[0].byteLength = newBinSize;
+        log(`[INFO] Pass 1: New binary size: ${newBinSize} bytes`);
+
+        log(`[INFO] Pass 2: Assembling new binary buffer...`);
+        const newBinBuffer = new ArrayBuffer(newBinSize);
+        const newBinBytes = new Uint8Array(newBinBuffer);
+        let currentOffset = 0;
+        for (const meta of viewMetas) {
+            const padding = (4 - (currentOffset % 4)) % 4;
+            currentOffset += padding;
+            
+            if (!meta.sourceData) {
+                throw new Error(`Source data for bufferView ${meta.index} is missing.`);
+            }
+            log(`[DEBUG] BV ${meta.index}: Writing ${meta.sourceData!.byteLength} bytes at offset ${currentOffset}`);
+            newBinBytes.set(new Uint8Array(meta.sourceData!), currentOffset);
+            currentOffset += meta.sourceData!.byteLength;
+        }
+        
+        if (currentOffset !== newBinSize) {
+             log(`[ERROR] Mismatch in binary chunk construction. Expected size: ${newBinSize}, Actual size: ${currentOffset}`, 'error');
+        } else {
+             log(`[INFO] Pass 2: Assembly complete. Final size: ${currentOffset} bytes.`);
+        }
+        
+        const GLB_HEADER_MAGIC = 0x46546C67; // 'glTF'
+        const GLB_VERSION = 2;
+        const GLB_CHUNK_TYPE_JSON = 0x4E4F534A; // 'JSON'
+        const GLB_CHUNK_TYPE_BIN = 0x004E4942; // 'BIN'
+
+        const jsonString = JSON.stringify(newJson);
+        const jsonBuffer = new TextEncoder().encode(jsonString);
+        const jsonPadding = (4 - (jsonBuffer.length % 4)) % 4;
+        const jsonChunkLength = jsonBuffer.length + jsonPadding;
+        
+        const binPadding = (4 - (newBinBuffer.byteLength % 4)) % 4;
+        const binChunkLength = newBinBuffer.byteLength + binPadding;
+        
+        const totalLength = 12 + (8 + jsonChunkLength) + (8 + binChunkLength);
+        const finalGlbBuffer = new ArrayBuffer(totalLength);
+        const dataView = new DataView(finalGlbBuffer);
+        const uint8Array = new Uint8Array(finalGlbBuffer);
+
+        let offset = 0;
+        dataView.setUint32(offset, GLB_HEADER_MAGIC, true); offset += 4;
+        dataView.setUint32(offset, GLB_VERSION, true); offset += 4;
+        dataView.setUint32(offset, totalLength, true); offset += 4;
+
+        // JSON chunk
+        dataView.setUint32(offset, jsonChunkLength, true); offset += 4;
+        dataView.setUint32(offset, GLB_CHUNK_TYPE_JSON, true); offset += 4;
+        uint8Array.set(jsonBuffer, offset); offset += jsonBuffer.length;
+        for(let i=0; i<jsonPadding; i++) uint8Array[offset++] = 0x20; 
+
+        // BIN chunk
+        dataView.setUint32(offset, binChunkLength, true); offset += 4;
+        dataView.setUint32(offset, GLB_CHUNK_TYPE_BIN, true); offset += 4;
+        uint8Array.set(new Uint8Array(newBinBuffer), offset); offset += newBinBuffer.byteLength;
+        for(let i=0; i<binPadding; i++) uint8Array[offset++] = 0x00;
+        
+        log(`[SUCCESS] Export complete!`, 'success');
         
         log(`[INFO] --- Texture Size Report ---`);
-        textureSizeChanges.forEach((change, i) => {
-            const finalSize = finalSizes[i] || change.newSize; // Fallback for safety
-            const status = change.modified ? '(modified)' : '(re-compressed)';
-            log(`[INFO] '${change.name || `Texture ${i}`}' ${status}: ${formatBytes(change.originalSize)} -> ${formatBytes(finalSize)}`);
+        textureSizeChanges.forEach((change) => {
+            if(!change) return;
+            const status = change.modified ? '(modified)' : '(preserved)';
+            log(`[INFO] '${change.name || 'Texture'}' ${status}: ${formatBytes(change.originalSize)} -> ${formatBytes(change.newSize)}`);
         });
         log(`[INFO] ---------------------------`);
+
+        log(`[INFO] --- Total File Size ---`);
+        log(`[INFO] Original Model: ${formatBytes(file.size)}`);
+        log(`[INFO] New Model:      ${formatBytes(finalGlbBuffer.byteLength)}`);
+
+        return new Blob([finalGlbBuffer], { type: 'model/gltf-binary' });
+    } catch (e) {
+        log(`[FATAL] An unexpected error occurred during GLB reconstruction: ${e.message}`, 'error');
+        console.error(e);
+        throw e;
     }
-
-    log(`[INFO] --- Total File Size ---`);
-    log(`[INFO] Original Model: ${formatBytes(file.size)}`);
-    log(`[INFO] New Model:      ${formatBytes(result.byteLength)}`);
-
-    return new Blob([result], { type: 'model/gltf-binary' });
 };
