@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { UploadIcon } from './icons';
 
@@ -74,7 +75,12 @@ const Dropzone: React.FC<DropzoneProps> = ({ onFileDrop, disabled, children }) =
             
             {children}
 
-            <p className="text-xs text-gray-500 pointer-events-none">All processing is done in your browser. Your files are never uploaded.</p>
+            <div className="text-center">
+                <p className="text-xs text-gray-500 pointer-events-none">All processing is done in your browser. Your files are never uploaded.</p>
+                <a href="https://github.com/Extraakash/RGB_Linear_3D" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-cyan-400 underline mt-2 inline-block pointer-events-auto">
+                    Source Code
+                </a>
+            </div>
         </div>
     );
 };

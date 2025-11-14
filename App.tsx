@@ -5,7 +5,7 @@ import { processGltf } from './services/gltfProcessor';
 import Logger from './components/Logger';
 import Dropzone from './components/Dropzone';
 import Tooltip from './components/Tooltip';
-import { DownloadIcon, ErrorIcon, FileIcon, ResetIcon, SuccessIcon, ChevronDownIcon, ChevronUpIcon, InfoIcon } from './components/icons';
+import { DownloadIcon, ErrorIcon, FileIcon, ResetIcon, SuccessIcon, ChevronDownIcon, ChevronUpIcon, InfoIcon, PlusIcon } from './components/icons';
 
 const formatBytes = (bytes: number, decimals = 2) => {
     if (!+bytes) return '0 Bytes';
@@ -138,7 +138,7 @@ const App: React.FC = () => {
                                 Download
                             </a>
                             <button onClick={handleReset} className="flex items-center justify-center px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-md transition-colors">
-                                <ResetIcon className="w-5 h-5 mr-2"/>
+                                <PlusIcon className="w-5 h-5 mr-2"/>
                                 Process Another
                             </button>
                         </div>
