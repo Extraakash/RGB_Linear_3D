@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback } from 'react';
 import { UploadIcon } from './icons';
 
@@ -39,7 +38,7 @@ const Dropzone: React.FC<DropzoneProps> = ({ onFileDrop, disabled, children }) =
         }
     };
     
-    const baseClasses = "relative flex flex-col items-center justify-center w-full h-full p-8 text-center border-2 border-dashed rounded-lg transition-colors duration-300";
+    const baseClasses = "relative flex flex-col items-center justify-evenly w-full p-8 text-center border-2 border-dashed rounded-lg transition-colors duration-300";
     const idleClasses = "border-gray-600 hover:border-cyan-400 hover:bg-gray-800/60 cursor-pointer";
     const draggingClasses = "border-cyan-400 bg-cyan-900/30";
     const disabledClasses = "border-gray-700 bg-gray-800/20 cursor-not-allowed opacity-50";
@@ -67,17 +66,15 @@ const Dropzone: React.FC<DropzoneProps> = ({ onFileDrop, disabled, children }) =
                 onChange={handleFileChange} 
                 disabled={disabled}
             />
-            <div>
-                <div className="flex flex-col items-center pointer-events-none">
-                    <UploadIcon className="w-16 h-16 mb-4 text-gray-500" />
-                    <p className="text-xl font-semibold text-gray-200">Drag & drop a .glb file here</p>
-                    <p className="text-gray-400 mt-1">or click to select a file</p>
-                </div>
-                
-                {children}
-
-                <p className="text-xs text-gray-500 mt-6 pointer-events-none">All processing is done in your browser. Your files are never uploaded.</p>
+            <div className="flex flex-col items-center pointer-events-none">
+                <UploadIcon className="w-16 h-16 mb-4 text-gray-500" />
+                <p className="text-xl font-semibold text-gray-200">Drag & drop a .glb file here</p>
+                <p className="text-gray-400 mt-1">or click to select a file</p>
             </div>
+            
+            {children}
+
+            <p className="text-xs text-gray-500 pointer-events-none">All processing is done in your browser. Your files are never uploaded.</p>
         </div>
     );
 };

@@ -87,7 +87,7 @@ const App: React.FC = () => {
             case 'idle':
                 return (
                     <Dropzone onFileDrop={handleFileDrop} disabled={processingState !== 'idle'}>
-                        <div className="w-full max-w-sm mx-auto mt-8 space-y-2" onClick={(e) => e.stopPropagation()}>
+                        <div className="w-full max-w-sm mx-auto space-y-2" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-center space-x-2">
                                 <label htmlFor="quality-slider" className="text-sm font-medium text-gray-400">
                                     Compression Quality
@@ -117,7 +117,7 @@ const App: React.FC = () => {
                 );
             case 'processing':
                 return (
-                    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                    <div className="flex flex-col items-center justify-center text-center p-8">
                         <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-400 mb-4"></div>
                         <h3 className="text-xl font-semibold text-gray-200">Processing Model</h3>
                         <p className="text-gray-400 mt-2">Applying gamma correction & PNG compression...</p>
@@ -125,7 +125,7 @@ const App: React.FC = () => {
                 );
             case 'success':
                 return (
-                    <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-green-900/20 rounded-lg">
+                    <div className="flex flex-col items-center justify-center text-center p-8 bg-green-900/20 rounded-lg">
                         <SuccessIcon className="w-16 h-16 text-green-400 mb-4" />
                         <h3 className="text-2xl font-bold text-green-300">Success!</h3>
                         <p className="text-gray-300 mt-2 mb-6">Your GLB file has been processed.</p>
@@ -146,7 +146,7 @@ const App: React.FC = () => {
                 );
             case 'error':
                  return (
-                    <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-red-900/20 rounded-lg">
+                    <div className="flex flex-col items-center justify-center text-center p-8 bg-red-900/20 rounded-lg">
                         <ErrorIcon className="w-16 h-16 text-red-400 mb-4" />
                         <h3 className="text-2xl font-bold text-red-300">An Error Occurred</h3>
                         <p className="text-gray-300 mt-2 mb-6 max-w-md">{error}</p>
@@ -158,17 +158,16 @@ const App: React.FC = () => {
                  );
         }
     };
+    
+    const contentWrapperClasses = ['success', 'error', 'processing'].includes(processingState)
+        ? 'flex-grow flex flex-col items-center justify-center p-4'
+        : 'flex-grow flex items-stretch justify-center p-4';
 
     return (
-        <div className="min-h-screen flex flex-col p-4 sm:p-6 lg:p-8">
-            <header className="text-center mb-8">
-                <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">RGB to Linear Texture Converter</h1>
-                <p className="mt-2 text-lg text-gray-400">Convert albedo/diffuse textures to Linear color space.</p>
-            </header>
-
-            <main className="flex-grow flex flex-col items-center">
-                 <div className="w-full max-w-4xl bg-gray-800/50 rounded-xl border border-gray-700 shadow-2xl flex flex-col min-h-[500px]">
-                    <div className="flex-grow flex items-center justify-center p-4">
+        <div className="min-h-screen flex flex-col">
+            <main className="flex-grow flex flex-col items-center justify-center">
+                 <div className="w-full max-w-4xl bg-gray-800/50 rounded-xl border border-gray-700 shadow-2xl flex flex-col min-h-[80vh]">
+                    <div className={contentWrapperClasses}>
                         {renderMainContent()}
                     </div>
 
@@ -192,9 +191,6 @@ const App: React.FC = () => {
                     )}
                 </div>
             </main>
-            <footer className="text-center mt-8 text-gray-500 text-sm">
-                <p>Powered by React, Three.js, and Tailwind CSS.</p>
-            </footer>
         </div>
     );
 };
